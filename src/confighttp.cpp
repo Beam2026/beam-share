@@ -1382,6 +1382,11 @@ namespace confighttp {
       if (pin.size() != 4 || !std::all_of(pin.begin(), pin.end(), ::isdigit)) {
         throw std::invalid_argument("pin must be 4 digits");
       }
+      // Every port is derived from it, from base-5 to base+21, and all must be valid.
+      const int port = body.value("port", 0);
+      if (port != 0 && (port < 1029 || port > 65514)) {
+        throw std::invalid_argument("port must be 0 or 1029-65514");
+      }
     }
     return body;
   }
@@ -1395,12 +1400,16 @@ namespace confighttp {
    * {
    *   "id": "<Beam session id>",
    *   "pin": "<pin>",
-   *   "name": "Friendly Client Name"
+   *   "name": "Friendly Client Name",
+   *   "port": 50989
    * }
    * @endcode
-   * `answered` says whether a waiting request was answered now; otherwise the PIN waits for one.
+   * `port` is optional: the base port the client reaches Sunshine on through Beam's tunnel, which
+   * Sunshine then advertises in its replies (serverinfo, the launch URL, RTSP SETUP) instead of
+   * the ports it binds. `answered` says whether a waiting request was answered now; otherwise the
+   * PIN waits for one.
    *
-   * @api_examples{/api/beam/pairing| POST| {"id":"0f6c","pin":"1234","name":"Beam guest"}}
+   * @api_examples{/api/beam/pairing| POST| {"id":"0f6c","pin":"1234","name":"Beam guest","port":50989}}
    */
   void beamArmPairing(const resp_https_t &response, const req_https_t &request) {
     if (!check_content_type(response, request, "application/json")) {
@@ -1421,7 +1430,7 @@ namespace confighttp {
       const auto body = beam_pairing_body(request, true);
       nlohmann::json output_tree;
       output_tree["status"] = true;
-      output_tree["answered"] = nvhttp::beam_arm_pairing(body["id"], body["pin"], body.value("name", ""));
+      output_tree["answered"] = nvhttp::beam_arm_pairing(body["id"], body["pin"], body.value("name", ""), static_cast<std::uint16_t>(body.value("port", 0)));
       send_response(response, output_tree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "BeamArmPairing: "sv << e.what();

@@ -782,8 +782,11 @@ namespace nvhttp {
     return true;
   }
 
-  bool beam_arm_pairing(const std::string &id, const std::string &pin, const std::string &name) {
+  bool beam_arm_pairing(const std::string &id, const std::string &pin, const std::string &name, std::uint16_t client_port) {
     std::lock_guard lock {pair_mutex};
+
+    // The session about to pair is the one about to stream, so its ports are the ones to advertise.
+    net::set_advertised_port_base(client_port);
 
     // The guest asked first and is parked: answer it now, as /api/pin would, but only this one.
     if (const auto it = map_id_sess.find(beam_session_key(id)); it != std::end(map_id_sess) && it->second.last_phase == PAIR_PHASE::NONE) {
@@ -808,6 +811,8 @@ namespace nvhttp {
     std::lock_guard lock {pair_mutex};
 
     bool removed = beam_pairings.erase(id) > 0;
+    // Back to Sunshine's own ports until the next session says otherwise.
+    net::set_advertised_port_base(0);
     if (const auto it = map_id_sess.find(beam_session_key(id)); it != std::end(map_id_sess)) {
       answer_parked(std::move(it->second.async_insert_pin.response), beam_refusal("The Beam session ended"));
       map_id_sess.erase(it);
@@ -843,8 +848,9 @@ namespace nvhttp {
     tree.put("root.appversion", VERSION);
     tree.put("root.GfeVersion", GFE_VERSION);
     tree.put("root.uniqueid", http::unique_id);
-    tree.put("root.HttpsPort", net::map_port(PORT_HTTPS));
-    tree.put("root.ExternalPort", net::map_port(PORT_HTTP));
+    // Beam: the ports the client reaches us on, which need not be the ones bound here.
+    tree.put("root.HttpsPort", net::map_advertised_port(PORT_HTTPS));
+    tree.put("root.ExternalPort", net::map_advertised_port(PORT_HTTP));
     tree.put("root.MaxLumaPixelsHEVC", video::active_hevc_mode > 1 ? "1869449984" : "0");
 
     // Only include the MAC address for requests sent from paired clients over HTTPS.
@@ -1058,7 +1064,7 @@ namespace nvhttp {
         "{}{}:{}",
         launch_session->rtsp_url_scheme,
         net::addr_to_url_escaped_string(request->local_endpoint().address()),
-        static_cast<int>(net::map_port(rtsp_stream::RTSP_SETUP_PORT))
+        static_cast<int>(net::map_advertised_port(rtsp_stream::RTSP_SETUP_PORT))  // Beam
       )
     );
     tree.put("root.gamesession", 1);
@@ -1152,7 +1158,7 @@ namespace nvhttp {
         "{}{}:{}",
         launch_session->rtsp_url_scheme,
         net::addr_to_url_escaped_string(request->local_endpoint().address()),
-        static_cast<int>(net::map_port(rtsp_stream::RTSP_SETUP_PORT))
+        static_cast<int>(net::map_advertised_port(rtsp_stream::RTSP_SETUP_PORT))  // Beam
       )
     );
     tree.put("root.resume", 1);

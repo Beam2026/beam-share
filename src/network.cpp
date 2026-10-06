@@ -4,6 +4,7 @@
  */
 // standard includes
 #include <algorithm>
+#include <atomic>
 #include <sstream>
 
 // local includes
@@ -192,6 +193,21 @@ namespace net {
     });
 
     enet_host_destroy(host);
+  }
+
+  // Beam: set per session from the pairing API, read by the HTTP and RTSP threads.
+  static std::atomic<std::uint16_t> advertised_port_base {0};
+
+  void set_advertised_port_base(std::uint16_t base) {
+    advertised_port_base = base;
+  }
+
+  std::uint16_t map_advertised_port(int port) {
+    const auto base = advertised_port_base.load();
+    if (base == 0) {
+      return map_port(port);
+    }
+    return (std::uint16_t) ((int) base + port);
   }
 
   std::uint16_t map_port(int port) {

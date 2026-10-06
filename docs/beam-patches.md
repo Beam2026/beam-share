@@ -36,6 +36,22 @@ With it:
 
 A request with no `beamid` behaves exactly as upstream.
 
+## S2 — The client is told its own ports, 2026-10-06
+
+`net::map_advertised_port` and `net::set_advertised_port_base` in `src/network.cpp`, used in
+`src/nvhttp.cpp` (serverinfo's `HttpsPort`/`ExternalPort`, the launch and resume `sessionUrl0`) and
+`src/rtsp.cpp` (SETUP's `server_port`); set from `/api/beam/pairing`'s optional `port`. Tests in
+`tests/unit/test_network.cpp`.
+
+Moonlight learns every port after the first from Sunshine's replies, and upstream replies with the
+ports it binds. Beam's guest reaches Sunshine through a tunnel that listens on the *guest's*
+machine, on a port base of the guest's choosing, so it must be told that base's ports instead --
+otherwise a PC whose own Sunshine is on the same numbers cannot connect out without stopping it.
+
+`/api/beam/pairing` takes `"port": <the guest's base>` with the approval, and until that session's
+pairing is cancelled every advertised port is derived from it; Sunshine still binds its own. With
+no `port` (or 0) nothing changes.
+
 ## Building on Windows
 
 Upstream's `docs/building.md` applies, with MSYS2 UCRT64. Three things it leaves out, each of which

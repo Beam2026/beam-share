@@ -191,9 +191,11 @@ namespace nvhttp {
    * @param id The Beam session id the guest's requests carry.
    * @param pin The PIN for this attempt.
    * @param name The name the paired client is saved under.
+   * @param client_port The base port the client reaches Sunshine on, which Sunshine then advertises
+   * in its replies; 0 advertises the ports Sunshine binds.
    * @return `true` if a parked request was answered now, `false` if the PIN waits for one.
    */
-  bool beam_arm_pairing(const std::string &id, const std::string &pin, const std::string &name);
+  bool beam_arm_pairing(const std::string &id, const std::string &pin, const std::string &name, std::uint16_t client_port = 0);
 
   /**
    * @brief Beam: forget a Beam session's pairing -- the PIN waiting for it and any request it parked.

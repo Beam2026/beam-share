@@ -29,6 +29,24 @@ namespace net {
    */
   std::uint16_t map_port(int port);
 
+  /**
+   * @brief Beam: the port a client is told to use, for a port given as a difference from the base.
+   *
+   * Upstream tells a client the ports Sunshine binds. Beam's client reaches Sunshine through a
+   * tunnel that listens on the *client's* machine, at a base of the client's choosing, so the ports
+   * it must be told are that base's -- see `set_advertised_port_base`. Without one this is
+   * `map_port`.
+   * @param port The port as a difference from the base.
+   * @return The port number to put in a reply.
+   */
+  std::uint16_t map_advertised_port(int port);
+
+  /**
+   * @brief Beam: the base port the current client reaches Sunshine on, or 0 for Sunshine's own.
+   * @param base The client's base port; 0 advertises the ports Sunshine binds.
+   */
+  void set_advertised_port_base(std::uint16_t base);
+
   using host_t = util::safe_ptr<ENetHost, free_host>;
   using peer_t = ENetPeer *;
   using packet_t = util::safe_ptr<ENetPacket, enet_packet_destroy>;

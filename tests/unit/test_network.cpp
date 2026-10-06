@@ -4,6 +4,7 @@
  */
 #include "../tests_common.h"
 
+#include <src/config.h>
 #include <src/network.h>
 
 struct MdnsInstanceNameTest: testing::TestWithParam<std::tuple<std::string, std::string>> {};
@@ -137,4 +138,25 @@ TEST_F(BindAddressTest, LinkLocalAddresses) {
 TEST_F(BindAddressTest, WildcardAddressFunction) {
   ASSERT_EQ(net::af_to_any_address_string(net::af_e::IPV4), "0.0.0.0");
   ASSERT_EQ(net::af_to_any_address_string(net::af_e::BOTH), "::");
+}
+
+// Beam: a client reaching Sunshine through Beam's tunnel is told the tunnel's ports.
+TEST(AdvertisedPortTest, FollowsTheClientsBaseAndFallsBackToOurOwn) {
+  const auto saved = config::sunshine.port;
+  config::sunshine.port = 48989;
+
+  // No client base: advertise what is bound, exactly as upstream.
+  net::set_advertised_port_base(0);
+  EXPECT_EQ(net::map_advertised_port(-5), net::map_port(-5));
+  EXPECT_EQ(net::map_advertised_port(21), 49010);
+
+  // A client base moves every advertised port, and nothing that is bound.
+  net::set_advertised_port_base(50989);
+  EXPECT_EQ(net::map_advertised_port(-5), 50984);
+  EXPECT_EQ(net::map_advertised_port(0), 50989);
+  EXPECT_EQ(net::map_advertised_port(21), 51010);
+  EXPECT_EQ(net::map_port(21), 49010);
+
+  net::set_advertised_port_base(0);
+  config::sunshine.port = saved;
 }

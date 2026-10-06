@@ -851,13 +851,14 @@ namespace rtsp_stream {
     auto end = std::find(begin, std::end(target), '/');
     std::string_view type {begin, (size_t) std::distance(begin, end)};
 
+    // Beam: the ports the client reaches us on, which need not be the ones bound here.
     std::uint16_t port;
     if (type == "audio"sv) {
-      port = net::map_port(stream::AUDIO_STREAM_PORT);
+      port = net::map_advertised_port(stream::AUDIO_STREAM_PORT);
     } else if (type == "video"sv) {
-      port = net::map_port(stream::VIDEO_STREAM_PORT);
+      port = net::map_advertised_port(stream::VIDEO_STREAM_PORT);
     } else if (type == "control"sv) {
-      port = net::map_port(stream::CONTROL_PORT);
+      port = net::map_advertised_port(stream::CONTROL_PORT);
     } else {
       cmd_not_found(sock, session, std::move(req));
 
