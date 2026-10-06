@@ -2803,6 +2803,13 @@ namespace video {
       return 0;
     }
 
+    // Beam (S4): this probe is about to see the adapters as they are now, so take the snapshot that
+    // later changes are measured against here. Upstream takes it at the first stream instead, and so
+    // probes every encoder twice -- at startup and again on that stream, 0.4-1.2 s of the first
+    // session after Sunshine starts, which Beam starts at launch and keeps running. A GPU that
+    // appears, disappears or resets after this still makes the next stream probe again.
+    platf::needs_encoder_reenumeration();
+
     // Restart encoder selection
     auto previous_encoder = chosen_encoder;
     chosen_encoder = nullptr;

@@ -58,12 +58,30 @@ no `port` (or 0) nothing changes.
 `src/platform/windows/beam_audio.h`; tests in `tests/unit/platform/windows/test_beam_audio.cpp`.
 
 Upstream captures only in the stream's channel count. A guest asking for 5.1 or 7.1 from a host
-whose output device is plain stereo, with no virtual surround sink to switch to, got
-`Couldn't find supported format for audio` and no sound for the whole session -- seen on Beam as
-a guest on 7.1 receiving zero audio packets from one laptop, depending on what that host's output
-device was at the time. Now, if no format matches, the device is captured in stereo and each frame
-widened to the stream's channels: front left and right carry the sound, the rest are silent. A
-device that can do surround is captured exactly as before.
+whose output device cannot do it, with no virtual surround sink to switch to, gets
+`Couldn't find supported format for audio` and no sound for the whole session. Now, if no format
+matches, the device is captured in stereo and each frame widened to the stream's channels: front
+left and right carry the sound, the rest are silent. A device that can do surround is captured
+exactly as before.
+
+A safety net, not a fix for something observed. It was written for guest sessions that received no
+audio packets at all -- which turned out to be hosts playing nothing: Sunshine sends audio only
+while the host makes a sound.
+
+## S4 — Encoders are probed once, at startup, 2026-10-06
+
+`video::probe_encoders` in `src/video.cpp`.
+
+Upstream probes every encoder when Sunshine starts, then again on the first stream: Windows'
+`needs_encoder_reenumeration` takes its snapshot of the GPUs only on that first call, and reports
+"reenumeration is required" whenever it has none -- deliberately, for races while a system boots.
+Beam starts Sunshine when Beam launches and keeps it running, so that second probe was paid by the
+first session of every run: 0.43 s on one test PC, about 1.2 s on another.
+
+The snapshot is now taken as part of the probe itself, so the first stream skips it unless the GPUs
+actually changed since -- a GPU that appears, disappears or resets after startup still makes the
+next stream probe again. Measured on the same PC, first launch after startup: 431 ms before, 18 ms
+after.
 
 ## Building on Windows
 
