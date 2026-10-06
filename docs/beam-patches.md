@@ -52,6 +52,19 @@ otherwise a PC whose own Sunshine is on the same numbers cannot connect out with
 pairing is cancelled every advertised port is derived from it; Sunshine still binds its own. With
 no `port` (or 0) nothing changes.
 
+## S3 — Audio never goes silent for want of channels, 2026-10-06
+
+`src/platform/windows/audio.cpp` (`mic_wasapi_t::init` and `_fill_buffer`), with the widening in
+`src/platform/windows/beam_audio.h`; tests in `tests/unit/platform/windows/test_beam_audio.cpp`.
+
+Upstream captures only in the stream's channel count. A guest asking for 5.1 or 7.1 from a host
+whose output device is plain stereo, with no virtual surround sink to switch to, got
+`Couldn't find supported format for audio` and no sound for the whole session -- seen on Beam as
+a guest on 7.1 receiving zero audio packets from one laptop, depending on what that host's output
+device was at the time. Now, if no format matches, the device is captured in stereo and each frame
+widened to the stream's channels: front left and right carry the sound, the rest are silent. A
+device that can do surround is captured exactly as before.
+
 ## Building on Windows
 
 Upstream's `docs/building.md` applies, with MSYS2 UCRT64. Three things it leaves out, each of which

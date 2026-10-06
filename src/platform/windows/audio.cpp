@@ -18,6 +18,7 @@
 // local includes
 #include "src/config.h"
 #include "src/logging.h"
+#include "beam_audio.h"
 #include "src/platform/common.h"
 #include "utf_utils.h"
 
@@ -504,10 +505,31 @@ namespace platf::audio {
         }
       }
 
+      // Beam: a device that cannot be captured in the stream's channel count -- a plain stereo output
+      // asked for 5.1 or 7.1, with no virtual surround sink to switch to -- used to mean no audio for
+      // the whole session. Capture it in stereo instead and widen each frame in _fill_buffer: front
+      // left and right carry the sound, the rest are silent. Quieter than surround, never silent.
+      if (!audio_client && channels_out > 2) {
+        for (const auto &format : formats) {
+          if (format.channel_count != 2) {
+            continue;
+          }
+          audio_client = make_audio_client(device, format);
+          if (audio_client) {
+            BOOST_LOG(info) << "Beam: this device cannot be captured in "sv << channels_out
+                            << " channels; capturing ["sv << format.name << "] and sending it as "sv
+                            << channels_out << " channels, front left and right"sv;
+            channels = 2;
+            break;
+          }
+        }
+      }
+
       if (!audio_client) {
         BOOST_LOG(error) << "Couldn't find supported format for audio"sv;
         return -1;
       }
+      this->channels_out = channels_out;
 
       REFERENCE_TIME default_latency;
       audio_client->GetDevicePeriod(&default_latency, nullptr);
@@ -639,19 +661,32 @@ namespace platf::audio {
         }
 
         sample_aligned.uninitialized = std::end(sample_buf) - sample_buf_pos;
-        auto n = std::min(sample_aligned.uninitialized, block_aligned.audio_sample_size * channels);
 
-        if (n < block_aligned.audio_sample_size * channels) {
-          BOOST_LOG(warning) << "Audio capture buffer overflow";
-        }
-
-        if (buffer_flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-          std::fill_n(sample_buf_pos, n, 0);
+        if (channels < channels_out) {
+          // Beam: captured in fewer channels than the stream carries (see init); widen frame by
+          // frame, the captured channels first and the rest silent.
+          const auto frames_fit = sample_aligned.uninitialized / channels_out;
+          const auto frames = std::min<std::uint32_t>(frames_fit, block_aligned.audio_sample_size);
+          if (frames < block_aligned.audio_sample_size) {
+            BOOST_LOG(warning) << "Audio capture buffer overflow";
+          }
+          beam::widen_frames(sample_aligned.samples, channels, sample_buf_pos, channels_out, frames, buffer_flags & AUDCLNT_BUFFERFLAGS_SILENT);
+          sample_buf_pos += frames * channels_out;
         } else {
-          std::copy_n(sample_aligned.samples, n, sample_buf_pos);
-        }
+          auto n = std::min(sample_aligned.uninitialized, block_aligned.audio_sample_size * channels);
 
-        sample_buf_pos += n;
+          if (n < block_aligned.audio_sample_size * channels) {
+            BOOST_LOG(warning) << "Audio capture buffer overflow";
+          }
+
+          if (buffer_flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+            std::fill_n(sample_buf_pos, n, 0);
+          } else {
+            std::copy_n(sample_aligned.samples, n, sample_buf_pos);
+          }
+
+          sample_buf_pos += n;
+        }
 
         audio_capture->ReleaseBuffer(block_aligned.audio_sample_size);
       }
@@ -683,6 +718,8 @@ namespace platf::audio {
     util::buffer_t<float> sample_buf;
     float *sample_buf_pos;
     int channels;
+    // Beam: the channel count the stream carries, which `channels` -- what is captured -- may be below.
+    int channels_out = 0;
     bool continuous_audio;
 
     HANDLE mmcss_task_handle = nullptr;
