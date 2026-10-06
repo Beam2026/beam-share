@@ -8,6 +8,7 @@
 
 // standard includes
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -1357,6 +1358,118 @@ namespace confighttp {
   }
 
   /**
+   * @brief Beam: the request body of a Beam pairing call, checked.
+   *
+   * The id names a Beam session and is echoed into the log, so it is held to a short, plain
+   * alphabet; the PIN is four digits, as Moonlight's own pairing requires.
+   * @throws std::invalid_argument when a field is missing or malformed.
+   */
+  nlohmann::json beam_pairing_body(const req_https_t &request, bool needs_pin) {
+    std::stringstream ss;
+    ss << request->content.rdbuf();
+    nlohmann::json body = nlohmann::json::parse(ss);
+
+    const std::string id = body.value("id", "");
+    const bool id_ok = !id.empty() && id.size() <= 64 && std::all_of(id.begin(), id.end(), [](unsigned char c) {
+                         return std::isalnum(c) || c == '-' || c == '_';
+                       });
+    if (!id_ok) {
+      throw std::invalid_argument("id must be 1-64 letters, digits, '-' or '_'");
+    }
+
+    if (needs_pin) {
+      const std::string pin = body.value("pin", "");
+      if (pin.size() != 4 || !std::all_of(pin.begin(), pin.end(), ::isdigit)) {
+        throw std::invalid_argument("pin must be 4 digits");
+      }
+    }
+    return body;
+  }
+
+  /**
+   * @brief Beam: approve the pairing for one Beam session, before or after its guest asks.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "id": "<Beam session id>",
+   *   "pin": "<pin>",
+   *   "name": "Friendly Client Name"
+   * }
+   * @endcode
+   * `answered` says whether a waiting request was answered now; otherwise the PIN waits for one.
+   *
+   * @api_examples{/api/beam/pairing| POST| {"id":"0f6c","pin":"1234","name":"Beam guest"}}
+   */
+  void beamArmPairing(const resp_https_t &response, const req_https_t &request) {
+    if (!check_content_type(response, request, "application/json")) {
+      return;
+    }
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    std::string client_id = get_client_id(request);
+    if (!validate_csrf_token(response, request, client_id)) {
+      return;
+    }
+
+    print_req(request);
+
+    try {
+      const auto body = beam_pairing_body(request, true);
+      nlohmann::json output_tree;
+      output_tree["status"] = true;
+      output_tree["answered"] = nvhttp::beam_arm_pairing(body["id"], body["pin"], body.value("name", ""));
+      send_response(response, output_tree);
+    } catch (std::exception &e) {
+      BOOST_LOG(warning) << "BeamArmPairing: "sv << e.what();
+      bad_request(response, request, e.what());
+    }
+  }
+
+  /**
+   * @brief Beam: forget a Beam session's pairing, answering any request it left waiting.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "id": "<Beam session id>"
+   * }
+   * @endcode
+   *
+   * @api_examples{/api/beam/pairing/cancel| POST| {"id":"0f6c"}}
+   */
+  void beamCancelPairing(const resp_https_t &response, const req_https_t &request) {
+    if (!check_content_type(response, request, "application/json")) {
+      return;
+    }
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    std::string client_id = get_client_id(request);
+    if (!validate_csrf_token(response, request, client_id)) {
+      return;
+    }
+
+    print_req(request);
+
+    try {
+      const auto body = beam_pairing_body(request, false);
+      nlohmann::json output_tree;
+      output_tree["status"] = true;
+      output_tree["removed"] = nvhttp::beam_cancel_pairing(body["id"]);
+      send_response(response, output_tree);
+    } catch (std::exception &e) {
+      BOOST_LOG(warning) << "BeamCancelPairing: "sv << e.what();
+      bad_request(response, request, e.what());
+    }
+  }
+
+  /**
    * @brief Reset the display device persistence.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
@@ -1779,6 +1892,8 @@ namespace confighttp {
     server.resource["^/api/csrf-token$"]["GET"] = getCSRFToken;
     server.resource["^/api/password$"]["POST"] = savePassword;
     server.resource["^/api/pin$"]["POST"] = savePin;
+    server.resource["^/api/beam/pairing$"]["POST"] = beamArmPairing;
+    server.resource["^/api/beam/pairing/cancel$"]["POST"] = beamCancelPairing;
     server.resource["^/api/logs$"]["GET"] = getLogs;
     server.resource["^/api/reset-display-device-persistence$"]["POST"] = resetDisplayDevicePersistence;
     server.resource["^/api/restart$"]["POST"] = restart;

@@ -265,3 +265,28 @@ TEST(PairingTest, OutOfOrderCalls) {
   getservercert(sess, tree, "test");
   ASSERT_FALSE(tree.get<int>("root.paired") == 1);
 }
+
+// Beam: approvals are per Beam session, held until taken or cancelled.
+TEST(BeamPairingTest, AnApprovalWaitsUntilCancelled) {
+  // Nothing has asked yet, so the PIN waits rather than answering anything.
+  ASSERT_FALSE(beam_arm_pairing("session-a", "1234", "guest"));
+  ASSERT_TRUE(beam_cancel_pairing("session-a"));
+  // Cancelled once: there is nothing left to forget.
+  ASSERT_FALSE(beam_cancel_pairing("session-a"));
+}
+
+TEST(BeamPairingTest, SessionsDoNotShareApprovals) {
+  ASSERT_FALSE(beam_arm_pairing("session-a", "1111", "guest a"));
+  ASSERT_FALSE(beam_arm_pairing("session-b", "2222", "guest b"));
+  // Ending one session leaves the other's approval in place.
+  ASSERT_TRUE(beam_cancel_pairing("session-a"));
+  ASSERT_TRUE(beam_cancel_pairing("session-b"));
+}
+
+TEST(BeamPairingTest, ANewPinReplacesTheOldOneForTheSameSession) {
+  ASSERT_FALSE(beam_arm_pairing("session-a", "1111", "guest"));
+  ASSERT_FALSE(beam_arm_pairing("session-a", "2222", "guest"));
+  // One approval per session, so one cancel clears it.
+  ASSERT_TRUE(beam_cancel_pairing("session-a"));
+  ASSERT_FALSE(beam_cancel_pairing("session-a"));
+}

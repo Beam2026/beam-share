@@ -6,8 +6,11 @@
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS
 
 // standard includes
+#include <chrono>
 #include <filesystem>
 #include <format>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -143,6 +146,25 @@ namespace nvhttp {
   std::unordered_map<std::string, pair_session_t> map_id_sess;
   client_t client_root;
   std::atomic<uint32_t> session_id_counter;
+
+  /**
+   * Beam: a pairing approved for one Beam session, waiting for that session's guest to ask.
+   */
+  struct beam_pairing_t {
+    std::string pin;
+    std::string name;
+    std::chrono::steady_clock::time_point expires;
+  };
+
+  // Beam: approvals by Beam session id. Taken once, by the first request that names the session.
+  std::unordered_map<std::string, beam_pairing_t> beam_pairings;
+
+  // Beam: an approval no guest came for is dropped after this, so a stale one cannot linger.
+  constexpr auto BEAM_PAIRING_LIFETIME = 60s;
+
+  // Beam: guards map_id_sess and beam_pairings. Both are reached from the HTTP and HTTPS servers'
+  // threads and from confighttp's, which upstream does without a lock.
+  std::mutex pair_mutex;
 
   using args_t = SimpleWeb::CaseInsensitiveMultimap;
   using resp_https_t = std::shared_ptr<typename SimpleWeb::ServerBase<SunshineHTTPS>::Response>;
@@ -341,7 +363,57 @@ namespace nvhttp {
   }
 
   void remove_session(const pair_session_t &sess) {
-    map_id_sess.erase(sess.client.uniqueID);
+    map_id_sess.erase(sess.key);
+  }
+
+  // Beam: the session map's key for a request that names its Beam session.
+  std::string beam_session_key(const std::string &id) {
+    return "beam:" + id;
+  }
+
+  using parked_response_t = std::remove_reference_t<decltype(std::declval<pair_session_t &>().async_insert_pin.response)>;
+
+  /**
+   * Beam: writes `tree` to a request that was parked waiting for a PIN.
+   * @return `true` if there was a request to answer.
+   */
+  bool answer_parked(parked_response_t response, const pt::ptree &tree) {
+    std::ostringstream data;
+    pt::write_xml(data, tree);
+
+    if (response.has_left() && response.left()) {
+      response.left()->write(data.str());
+      return true;
+    }
+    if (response.has_right() && response.right()) {
+      response.right()->write(data.str());
+      return true;
+    }
+    return false;
+  }
+
+  // Beam: the reply that turns a parked request away.
+  pt::ptree beam_refusal(const std::string &status_msg) {
+    pt::ptree tree;
+    tree.put("root.paired", 0);
+    tree.put("root.<xmlattr>.status_code", 400);
+    tree.put("root.<xmlattr>.status_message", status_msg);
+    return tree;
+  }
+
+  // Beam: the approval waiting for a Beam session, taken so that it is used at most once.
+  std::optional<beam_pairing_t> take_beam_pairing(const std::string &id) {
+    const auto it = beam_pairings.find(id);
+    if (it == std::end(beam_pairings)) {
+      return std::nullopt;
+    }
+    auto armed = std::move(it->second);
+    beam_pairings.erase(it);
+    if (std::chrono::steady_clock::now() > armed.expires) {
+      BOOST_LOG(info) << "Beam: the pairing approved for session "sv << id << " expired before its guest asked"sv;
+      return std::nullopt;
+    }
+    return armed;
   }
 
   void fail_pair(pair_session_t &sess, pt::ptree &tree, const std::string status_msg) {
@@ -573,18 +645,47 @@ namespace nvhttp {
 
     auto uniqID {get_arg(args, "uniqueid")};
 
+    // Beam: beam-view names the Beam session in every pairing request. Its uniqueid is the same
+    // constant for every client, so without this two sessions' requests would share one slot.
+    const auto beam_id = get_arg(args, "beamid", "");
+    const auto key = beam_id.empty() ? uniqID : beam_session_key(beam_id);
+
+    std::lock_guard lock {pair_mutex};
+
     args_t::const_iterator it;
     if (it = args.find("phrase"); it != std::end(args)) {
       if (it->second == "getservercert"sv) {
         pair_session_t sess;
 
+        sess.key = key;
         sess.client.uniqueID = std::move(uniqID);
         sess.client.cert = util::from_hex_vec(get_arg(args, "clientcert"), true);
 
         BOOST_LOG(debug) << sess.client.cert;
-        auto ptr = map_id_sess.emplace(sess.client.uniqueID, std::move(sess)).first;
+
+        // Beam: a new request for a Beam session is a retry with a fresh PIN. It replaces the one
+        // before it, instead of failing as "Out of order call to getservercert" against it.
+        if (!beam_id.empty()) {
+          if (const auto old = map_id_sess.find(key); old != std::end(map_id_sess)) {
+            answer_parked(std::move(old->second.async_insert_pin.response), beam_refusal("Replaced by a newer pairing request"));
+            map_id_sess.erase(old);
+          }
+        }
+
+        auto ptr = map_id_sess.emplace(key, std::move(sess)).first;
 
         ptr->second.async_insert_pin.salt = std::move(get_arg(args, "salt"));
+
+        // Beam: the host approved this session before its guest asked, so answer now, not park.
+        if (!beam_id.empty()) {
+          if (auto armed = take_beam_pairing(beam_id)) {
+            BOOST_LOG(info) << "Beam: answering session "sv << beam_id << " with the PIN its host approved"sv;
+            ptr->second.client.name = armed->name;
+            getservercert(ptr->second, tree, armed->pin);
+            return;
+          }
+        }
+
         if (config::sunshine.flags[config::flag::PIN_STDIN]) {
           std::string pin;
 
@@ -609,7 +710,7 @@ namespace nvhttp {
       }
     }
 
-    auto sess_it = map_id_sess.find(uniqID);
+    auto sess_it = map_id_sess.find(key);
     if (sess_it == std::end(map_id_sess)) {
       tree.put("root.<xmlattr>.status_code", 400);
       tree.put("root.<xmlattr>.status_message", "Invalid uniqueid");
@@ -633,6 +734,7 @@ namespace nvhttp {
   }
 
   bool pin(std::string pin, std::string name) {
+    std::lock_guard lock {pair_mutex};
     pt::ptree tree;
     if (map_id_sess.empty()) {
       return false;
@@ -678,6 +780,43 @@ namespace nvhttp {
     async_response = std::decay_t<decltype(async_response.left())>();
     // response to the current request
     return true;
+  }
+
+  bool beam_arm_pairing(const std::string &id, const std::string &pin, const std::string &name) {
+    std::lock_guard lock {pair_mutex};
+
+    // The guest asked first and is parked: answer it now, as /api/pin would, but only this one.
+    if (const auto it = map_id_sess.find(beam_session_key(id)); it != std::end(map_id_sess) && it->second.last_phase == PAIR_PHASE::NONE) {
+      auto &sess = it->second;
+      sess.client.name = name;
+      auto response = std::move(sess.async_insert_pin.response);
+      pt::ptree tree;
+      getservercert(sess, tree, pin);  // on failure this removes `sess`, so nothing reads it after
+      BOOST_LOG(info) << "Beam: answered the pairing request session "sv << id << " was waiting with"sv;
+      return answer_parked(std::move(response), tree);
+    }
+
+    std::erase_if(beam_pairings, [now = std::chrono::steady_clock::now()](const auto &entry) {
+      return now > entry.second.expires;
+    });
+    beam_pairings.insert_or_assign(id, beam_pairing_t {pin, name, std::chrono::steady_clock::now() + BEAM_PAIRING_LIFETIME});
+    BOOST_LOG(info) << "Beam: pairing approved for session "sv << id << ", waiting for its guest"sv;
+    return false;
+  }
+
+  bool beam_cancel_pairing(const std::string &id) {
+    std::lock_guard lock {pair_mutex};
+
+    bool removed = beam_pairings.erase(id) > 0;
+    if (const auto it = map_id_sess.find(beam_session_key(id)); it != std::end(map_id_sess)) {
+      answer_parked(std::move(it->second.async_insert_pin.response), beam_refusal("The Beam session ended"));
+      map_id_sess.erase(it);
+      removed = true;
+    }
+    if (removed) {
+      BOOST_LOG(info) << "Beam: forgot the pairing for session "sv << id;
+    }
+    return removed;
   }
 
   template<class T>

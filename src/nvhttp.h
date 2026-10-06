@@ -81,6 +81,12 @@ namespace nvhttp {
   };
 
   struct pair_session_t {
+    /**
+     * @brief Beam: where this session lives in the session map -- the client's uniqueid, or its Beam
+     * session for a request that names one (see `beam_arm_pairing`).
+     */
+    std::string key = {};
+
     struct {
       std::string uniqueID = {};
       std::string cert = {};
@@ -174,6 +180,30 @@ namespace nvhttp {
    * @examples_end
    */
   bool pin(std::string pin, std::string name);
+
+  /**
+   * @brief Beam: approve the pairing for one Beam session, before or after its guest asks.
+   *
+   * Upstream's `pin()` can only answer a request that is already parked, and answers whichever one
+   * that is: it has no way to say which client the PIN is for. Beam's guest names its session in
+   * every pairing request (`beamid=`), so the host approves exactly that session, and may do it
+   * first -- the guest's request is then answered on arrival instead of parked.
+   * @param id The Beam session id the guest's requests carry.
+   * @param pin The PIN for this attempt.
+   * @param name The name the paired client is saved under.
+   * @return `true` if a parked request was answered now, `false` if the PIN waits for one.
+   */
+  bool beam_arm_pairing(const std::string &id, const std::string &pin, const std::string &name);
+
+  /**
+   * @brief Beam: forget a Beam session's pairing -- the PIN waiting for it and any request it parked.
+   *
+   * A parked request is answered with a failure rather than left open, so nothing from an ended
+   * session can take the next one's PIN.
+   * @param id The Beam session id.
+   * @return `true` if there was anything to forget.
+   */
+  bool beam_cancel_pairing(const std::string &id);
 
   /**
    * @brief Remove single client.
