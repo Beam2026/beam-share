@@ -83,6 +83,25 @@ actually changed since -- a GPU that appears, disappears or resets after startup
 next stream probe again. Measured on the same PC, first launch after startup: 431 ms before, 18 ms
 after.
 
+## S5 — A guest's mode only ever raises the display, 2026-10-06
+
+`display_device::keep_only_improvements` in `src/display_device.cpp`, applied in
+`configure_display`; tests in `tests/unit/test_display_device.cpp`.
+
+Upstream applies the client's mode as it is when display changes are allowed, so a 60 Hz guest
+dropped a 144 Hz host to 60 Hz on every session -- over a second of `/launch`, a flicker on the
+host's screen, and nothing gained, because Sunshine captures and scales either way. Now the
+request is compared with the display as it is: a resolution is kept only if larger in width or
+height, a refresh rate only if higher (half a hertz of slack, so 59.94 is 60), HDR only if it turns
+it on. The rest stays as it is, and the log says so. Measured with a lower mode requested: launch
+19 ms, no mode change.
+
+## Test builds
+
+Each patch is tried as a pre-release tagged `beam-dev` -- replaced every time, with
+`Sunshine-Windows-AMD64-portable.zip.sha256` beside the zip -- before it goes into a numbered
+release. Beam fetches one with `node scripts/fetch-engines.mjs --dev sunshine`.
+
 ## Building on Windows
 
 Upstream's `docs/building.md` applies, with MSYS2 UCRT64. Three things it leaves out, each of which

@@ -131,6 +131,20 @@ namespace display_device {
   [[nodiscard]] EnumeratedDeviceList enumerate_devices();
 
   /**
+   * @brief Beam (S5): keep only the parts of a requested display change that improve on the display.
+   *
+   * A client's mode is applied as it is upstream, so a 60 Hz guest drops a 144 Hz host to 60 Hz, and
+   * a 1080p guest shrinks a 1440p host -- a mode switch that costs over a second, flickers the
+   * host's screen and gains nothing, since Sunshine captures and scales either way. So a requested
+   * resolution is kept only if it is larger in width or height, a refresh rate only if it is
+   * higher, and HDR only if it turns it on. What is dropped stays as the display already is.
+   * @param config The configuration parsed from the client's request; changed in place.
+   * @param current The display's current state.
+   * @return Whether anything was dropped.
+   */
+  bool keep_only_improvements(SingleDisplayConfiguration &config, const EnumeratedDevice::Info &current);
+
+  /**
    * @brief A tag structure indicating that configuration parsing has failed.
    */
   struct failed_to_parse_tag_t {};

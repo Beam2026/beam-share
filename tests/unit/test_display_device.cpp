@@ -509,3 +509,46 @@ namespace {
     }
   }
 }  // namespace
+
+// Beam (S5): a guest's mode only ever improves on the display as it is.
+namespace {
+  display_device::EnumeratedDevice::Info host_at(unsigned int width, unsigned int height, double refresh, display_device::HdrState hdr) {
+    display_device::EnumeratedDevice::Info info;
+    info.m_resolution = {width, height};
+    info.m_refresh_rate = refresh;
+    info.m_hdr_state = hdr;
+    return info;
+  }
+}  // namespace
+
+TEST(BeamDisplayTest, NeverLowersAHostsRefreshRateOrResolution) {
+  display_device::SingleDisplayConfiguration config;
+  config.m_resolution = resolution_t {1920, 1080};
+  config.m_refresh_rate = rational_t {60, 1};
+  config.m_hdr_state = hdr_state_e::Disabled;
+
+  EXPECT_TRUE(display_device::keep_only_improvements(config, host_at(2560, 1440, 144.0, hdr_state_e::Enabled)));
+  EXPECT_FALSE(config.m_resolution);
+  EXPECT_FALSE(config.m_refresh_rate);
+  EXPECT_FALSE(config.m_hdr_state);
+}
+
+TEST(BeamDisplayTest, RaisesWhatTheGuestCanUse) {
+  display_device::SingleDisplayConfiguration config;
+  config.m_resolution = resolution_t {2560, 1440};
+  config.m_refresh_rate = rational_t {120, 1};
+  config.m_hdr_state = hdr_state_e::Enabled;
+
+  EXPECT_FALSE(display_device::keep_only_improvements(config, host_at(1920, 1080, 60.0, hdr_state_e::Disabled)));
+  EXPECT_EQ(config.m_resolution, (resolution_t {2560, 1440}));
+  EXPECT_TRUE(config.m_refresh_rate);
+  EXPECT_EQ(config.m_hdr_state, hdr_state_e::Enabled);
+}
+
+TEST(BeamDisplayTest, TreatsNearlyEqualRatesAsEqual) {
+  display_device::SingleDisplayConfiguration config;
+  config.m_refresh_rate = rational_t {60000, 1001};  // 59.94
+
+  display_device::keep_only_improvements(config, host_at(1920, 1080, 60.0, hdr_state_e::Disabled));
+  EXPECT_FALSE(config.m_refresh_rate);
+}

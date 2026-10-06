@@ -757,9 +757,57 @@ namespace display_device {
     });
   }
 
+  namespace {
+    double as_double(const FloatingPoint &value) {
+      if (const auto *rational {std::get_if<Rational>(&value)}; rational) {
+        return rational->m_denominator == 0 ? 0.0 : static_cast<double>(rational->m_numerator) / rational->m_denominator;
+      }
+      return std::get<double>(value);
+    }
+
+    // Beam (S5): the display a configuration is for, as it is now -- the named one, or the primary.
+    std::optional<EnumeratedDevice::Info> current_state_of(const std::string &device_id) {
+      for (const auto &device : enumerate_devices()) {
+        if (!device.m_info) {
+          continue;
+        }
+        if (device_id.empty() ? device.m_info->m_primary : device.m_device_id == device_id) {
+          return device.m_info;
+        }
+      }
+      return std::nullopt;
+    }
+  }  // namespace
+
+  bool keep_only_improvements(SingleDisplayConfiguration &config, const EnumeratedDevice::Info &current) {
+    bool dropped = false;
+    if (config.m_resolution && config.m_resolution->m_width <= current.m_resolution.m_width && config.m_resolution->m_height <= current.m_resolution.m_height) {
+      BOOST_LOG(info) << "Beam: keeping the display at " << current.m_resolution.m_width << "x" << current.m_resolution.m_height
+                      << " rather than lowering it to " << config.m_resolution->m_width << "x" << config.m_resolution->m_height;
+      config.m_resolution.reset();
+      dropped = true;
+    }
+    // Half a hertz of slack: 59.94 and 60 are the same rate to anyone watching.
+    if (config.m_refresh_rate && as_double(*config.m_refresh_rate) <= as_double(current.m_refresh_rate) + 0.5) {
+      BOOST_LOG(info) << "Beam: keeping the display at " << as_double(current.m_refresh_rate) << " Hz rather than lowering it to "
+                      << as_double(*config.m_refresh_rate) << " Hz";
+      config.m_refresh_rate.reset();
+      dropped = true;
+    }
+    if (config.m_hdr_state == HdrState::Disabled) {
+      config.m_hdr_state.reset();
+      dropped = true;
+    }
+    return dropped;
+  }
+
   void configure_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session) {
-    const auto result {parse_configuration(video_config, session)};
-    if (const auto *parsed_config {std::get_if<SingleDisplayConfiguration>(&result)}; parsed_config) {
+    auto result {parse_configuration(video_config, session)};
+    if (auto *parsed_config {std::get_if<SingleDisplayConfiguration>(&result)}; parsed_config) {
+      // Beam (S5): only changes that improve on the display as it is now.
+      if (const auto current {current_state_of(parsed_config->m_device_id)}; current) {
+        keep_only_improvements(*parsed_config, *current);
+      }
       configure_display(*parsed_config);
       return;
     }
