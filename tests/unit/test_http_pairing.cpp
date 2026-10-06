@@ -290,3 +290,12 @@ TEST(BeamPairingTest, ANewPinReplacesTheOldOneForTheSameSession) {
   ASSERT_TRUE(beam_cancel_pairing("session-a"));
   ASSERT_FALSE(beam_cancel_pairing("session-a"));
 }
+
+// Beam (S7): nothing launches outside a Beam session -- open from approval to cancel.
+TEST(BeamPairingTest, ASessionIsOpenFromApprovalUntilCancel) {
+  ASSERT_FALSE(beam_session_open());
+  beam_arm_pairing("session-g", "1234", "guest");
+  ASSERT_TRUE(beam_session_open());
+  beam_cancel_pairing("session-g");
+  ASSERT_FALSE(beam_session_open());
+}

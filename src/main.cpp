@@ -9,6 +9,9 @@
 #include <fstream>
 #include <iostream>
 
+// lib includes
+#include <boost/asio/ip/address.hpp>
+
 #ifdef __APPLE__
   #include <mach-o/dyld.h>
 #endif
@@ -382,6 +385,13 @@ int main(int argc, char *argv[]) {
 
   std::unique_ptr<platf::deinit_t> mDNS;
   auto sync_mDNS = std::async(std::launch::async, [&mDNS]() {
+    // Beam (S7): a Sunshine bound to loopback cannot be reached from the network, so announcing it
+    // there would only advertise the PC to everyone on it.
+    boost::system::error_code ec;
+    if (const auto bound = boost::asio::ip::make_address(config::sunshine.bind_address, ec); !ec && bound.is_loopback()) {
+      BOOST_LOG(info) << "Beam: not announcing on the network: Sunshine listens on this PC only";
+      return;
+    }
     mDNS = platf::publish::start();
   });
 

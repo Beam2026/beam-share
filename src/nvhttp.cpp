@@ -11,6 +11,7 @@
 #include <format>
 #include <mutex>
 #include <optional>
+#include <unordered_set>
 #include <string>
 #include <utility>
 
@@ -158,6 +159,10 @@ namespace nvhttp {
 
   // Beam: approvals by Beam session id. Taken once, by the first request that names the session.
   std::unordered_map<std::string, beam_pairing_t> beam_pairings;
+
+  // Beam (S7): the Beam sessions approved and not yet cancelled. Nothing launches outside one, so a
+  // device left paired by a crash or a bug still cannot start a stream on its own.
+  std::unordered_set<std::string> beam_open_sessions;
 
   // Beam: an approval no guest came for is dropped after this, so a stale one cannot linger.
   constexpr auto BEAM_PAIRING_LIFETIME = 60s;
@@ -782,11 +787,31 @@ namespace nvhttp {
     return true;
   }
 
+  // Beam (S7): whether a launch may go ahead -- only while Beam has a session open.
+  bool beam_session_open() {
+    std::lock_guard lock {pair_mutex};
+    return !beam_open_sessions.empty();
+  }
+
+  // Beam (S7): turns a launch or resume away when no Beam session is open.
+  bool refuse_outside_beam_session(pt::ptree &tree) {
+    if (beam_session_open()) {
+      return false;
+    }
+    BOOST_LOG(warning) << "Beam: refused to start a stream with no Beam session open"sv;
+    tree.put("root.resume", 0);
+    tree.put("root.gamesession", 0);
+    tree.put("root.<xmlattr>.status_code", 403);
+    tree.put("root.<xmlattr>.status_message", "No Beam session is open");
+    return true;
+  }
+
   bool beam_arm_pairing(const std::string &id, const std::string &pin, const std::string &name, std::uint16_t client_port) {
     std::lock_guard lock {pair_mutex};
 
     // The session about to pair is the one about to stream, so its ports are the ones to advertise.
     net::set_advertised_port_base(client_port);
+    beam_open_sessions.insert(id);
 
     // The guest asked first and is parked: answer it now, as /api/pin would, but only this one.
     if (const auto it = map_id_sess.find(beam_session_key(id)); it != std::end(map_id_sess) && it->second.last_phase == PAIR_PHASE::NONE) {
@@ -811,6 +836,7 @@ namespace nvhttp {
     std::lock_guard lock {pair_mutex};
 
     bool removed = beam_pairings.erase(id) > 0;
+    removed = beam_open_sessions.erase(id) > 0 || removed;
     // Back to Sunshine's own ports until the next session says otherwise.
     net::set_advertised_port_base(0);
     if (const auto it = map_id_sess.find(beam_session_key(id)); it != std::end(map_id_sess)) {
@@ -985,6 +1011,10 @@ namespace nvhttp {
       }
     });
 
+    if (refuse_outside_beam_session(tree)) {
+      return;
+    }
+
     auto args = request->parse_query_string();
     if (
       args.find("rikey"s) == std::end(args) ||
@@ -1090,6 +1120,10 @@ namespace nvhttp {
       response->write(data.str());
       response->close_connection_after_response = true;
     });
+
+    if (refuse_outside_beam_session(tree)) {
+      return;
+    }
 
     auto current_appid = proc::proc.running();
     if (current_appid == 0) {

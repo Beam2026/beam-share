@@ -96,6 +96,20 @@ height, a refresh rate only if higher (half a hertz of slack, so 59.94 is 60), H
 it on. The rest stays as it is, and the log says so. Measured with a lower mode requested: launch
 19 ms, no mode change.
 
+## S7 — Nothing streams outside a Beam session, and nothing is announced, 2026-10-06
+
+`refuse_outside_beam_session` in `src/nvhttp.cpp` (`launch`, `resume`), and the mDNS start in
+`src/main.cpp`; test in `tests/unit/test_http_pairing.cpp`.
+
+Upstream streams to any paired device whenever it asks. Beam clears pairings at both ends of every
+session, but a crash or a bug that left one behind would let that device stream with nobody
+pressing Allow. `/launch` and `/resume` are now refused -- 403, "No Beam session is open" -- unless
+a Beam session is open: approved with `/api/beam/pairing` and not yet cancelled. Checked live with a
+device still paired after its session was cancelled: refused.
+
+And a Sunshine bound to loopback no longer announces itself over mDNS: nothing on the network could
+connect to it, so announcing would only advertise the PC.
+
 ## Test builds
 
 Each patch is tried as a pre-release tagged `beam-dev` -- replaced every time, with

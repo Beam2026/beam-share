@@ -208,6 +208,14 @@ namespace nvhttp {
   bool beam_cancel_pairing(const std::string &id);
 
   /**
+   * @brief Beam (S7): whether a Beam session is open -- approved and not yet cancelled.
+   *
+   * `/launch` and `/resume` are refused outside one, so nothing streams that Beam did not approve
+   * for the session running now, even from a device that is somehow still paired.
+   */
+  bool beam_session_open();
+
+  /**
    * @brief Remove single client.
    * @param uuid The UUID of the client to remove.
    * @examples
