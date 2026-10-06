@@ -1378,8 +1378,14 @@ namespace confighttp {
     }
 
     if (needs_pin) {
+      // Beam (S6): a PIN to pair with, or the guest's certificate to trust without pairing.
       const std::string pin = body.value("pin", "");
-      if (pin.size() != 4 || !std::all_of(pin.begin(), pin.end(), ::isdigit)) {
+      const std::string client_cert = body.value("clientCert", "");
+      if (!client_cert.empty()) {
+        if (client_cert.rfind("-----BEGIN CERTIFICATE-----", 0) != 0 || client_cert.size() > 16384) {
+          throw std::invalid_argument("clientCert must be a PEM certificate");
+        }
+      } else if (pin.size() != 4 || !std::all_of(pin.begin(), pin.end(), ::isdigit)) {
         throw std::invalid_argument("pin must be 4 digits");
       }
       // Every port is derived from it, from base-5 to base+21, and all must be valid.
@@ -1404,6 +1410,9 @@ namespace confighttp {
    *   "port": 50989
    * }
    * @endcode
+   * Instead of `pin`, `clientCert` (the guest's certificate, PEM) trusts the guest directly for this
+   * session, without pairing (S6). Either way the response carries `serverCert`, this Sunshine's own
+   * certificate, for the guest to pin.
    * `port` is optional: the base port the client reaches Sunshine on through Beam's tunnel, which
    * Sunshine then advertises in its replies (serverinfo, the launch URL, RTSP SETUP) instead of
    * the ports it binds. `answered` says whether a waiting request was answered now; otherwise the
@@ -1430,7 +1439,16 @@ namespace confighttp {
       const auto body = beam_pairing_body(request, true);
       nlohmann::json output_tree;
       output_tree["status"] = true;
-      output_tree["answered"] = nvhttp::beam_arm_pairing(body["id"], body["pin"], body.value("name", ""), static_cast<std::uint16_t>(body.value("port", 0)));
+      const auto port = static_cast<std::uint16_t>(body.value("port", 0));
+      if (body.contains("clientCert")) {
+        if (!nvhttp::beam_trust_client(body["id"], body["clientCert"], body.value("name", ""), port)) {
+          throw std::invalid_argument("clientCert is not a certificate this Sunshine can trust");
+        }
+      } else {
+        output_tree["answered"] = nvhttp::beam_arm_pairing(body["id"], body["pin"], body.value("name", ""), port);
+      }
+      // The guest pins this instead of learning it from pairing.
+      output_tree["serverCert"] = nvhttp::beam_server_cert();
       send_response(response, output_tree);
     } catch (std::exception &e) {
       BOOST_LOG(warning) << "BeamArmPairing: "sv << e.what();

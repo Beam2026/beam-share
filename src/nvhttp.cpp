@@ -11,6 +11,7 @@
 #include <format>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
 #include <unordered_set>
 #include <string>
 #include <utility>
@@ -163,6 +164,14 @@ namespace nvhttp {
   // Beam (S7): the Beam sessions approved and not yet cancelled. Nothing launches outside one, so a
   // device left paired by a crash or a bug still cannot start a stream on its own.
   std::unordered_set<std::string> beam_open_sessions;
+
+  // Beam (S6): the device each session's guest was trusted as, by its certificate, so the session's
+  // end removes exactly it.
+  std::unordered_map<std::string, std::string> beam_trusted_devices;
+
+  // Beam (S6): the HTTPS server's queue of newly trusted certificates, which `start` creates. A
+  // completed pairing adds to it; so does trusting a guest's certificate directly.
+  std::shared_ptr<safe::queue_t<crypto::x509_t>> beam_add_cert;
 
   // Beam: an approval no guest came for is dropped after this, so a stale one cannot linger.
   constexpr auto BEAM_PAIRING_LIFETIME = 60s;
@@ -832,10 +841,46 @@ namespace nvhttp {
     return false;
   }
 
+  bool beam_trust_client(const std::string &id, std::string cert, const std::string &name, std::uint16_t client_port) {
+    auto x509 = crypto::x509(cert);
+    if (!x509 || !beam_add_cert) {
+      return false;
+    }
+
+    std::lock_guard lock {pair_mutex};
+    net::set_advertised_port_base(client_port);
+    beam_open_sessions.insert(id);
+
+    // What a completed pairing ends with -- the certificate in the HTTPS server's chain, and saved
+    // as a device -- without the PIN round trips that prove it: Beam proved who this is already.
+    beam_add_cert->raise(std::move(x509));
+    add_authorized_client(name, std::move(cert));
+    beam_trusted_devices[id] = client_root.named_devices.back().uuid;
+    BOOST_LOG(info) << "Beam: trusting session "sv << id << "'s guest by its certificate, without pairing"sv;
+    return true;
+  }
+
+  std::string beam_server_cert() {
+    return conf_intern.servercert;
+  }
+
   bool beam_cancel_pairing(const std::string &id) {
+    std::string trusted_device;
+    {
+      std::lock_guard lock {pair_mutex};
+      if (const auto it = beam_trusted_devices.find(id); it != std::end(beam_trusted_devices)) {
+        trusted_device = it->second;
+        beam_trusted_devices.erase(it);
+      }
+    }
+    // Outside the lock: unpair_client saves and reloads the state, which touches nothing it guards.
+    if (!trusted_device.empty()) {
+      unpair_client(trusted_device);
+    }
+
     std::lock_guard lock {pair_mutex};
 
-    bool removed = beam_pairings.erase(id) > 0;
+    bool removed = beam_pairings.erase(id) > 0 || !trusted_device.empty();
     removed = beam_open_sessions.erase(id) > 0 || removed;
     // Back to Sunshine's own ports until the next session says otherwise.
     net::set_advertised_port_base(0);
@@ -1264,6 +1309,7 @@ namespace nvhttp {
     setup(pkey, cert);
 
     auto add_cert = std::make_shared<safe::queue_t<crypto::x509_t>>(30);
+    beam_add_cert = add_cert;
 
     // resume doesn't always get the parameter "localAudioPlayMode"
     // launch will store it in host_audio

@@ -216,6 +216,24 @@ namespace nvhttp {
   bool beam_session_open();
 
   /**
+   * @brief Beam (S6): trust one session's guest by its certificate, instead of pairing.
+   *
+   * Beam's guest sends its client certificate through Beam, and the host approves it here: it is
+   * added to the HTTPS server's chain and saved as a device, exactly as a completed pairing would
+   * leave it, and removed again when the session is cancelled. The certificate is public; the guest
+   * proves it holds the matching private key on every connection, so nothing secret crosses
+   * anywhere and no PIN is needed. Opens the session (S7) and sets its advertised ports (S2).
+   * @return Whether the certificate was valid and is now trusted.
+   */
+  bool beam_trust_client(const std::string &id, std::string cert, const std::string &name, std::uint16_t client_port);
+
+  /**
+   * @brief Beam (S6): this Sunshine's own certificate, PEM, for the guest to pin instead of learning
+   * it from pairing.
+   */
+  std::string beam_server_cert();
+
+  /**
    * @brief Remove single client.
    * @param uuid The UUID of the client to remove.
    * @examples

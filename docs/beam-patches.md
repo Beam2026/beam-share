@@ -96,6 +96,25 @@ height, a refresh rate only if higher (half a hertz of slack, so 59.94 is 60), H
 it on. The rest stays as it is, and the log says so. Measured with a lower mode requested: launch
 19 ms, no mode change.
 
+## S6 — A session's guest is trusted by its certificate, 2026-10-06
+
+`beam_trust_client` and `beam_server_cert` in `src/nvhttp.cpp`; the `clientCert` body in
+`src/confighttp.cpp`.
+
+Pairing swaps two certificates under a PIN, over four round trips. Beam already has a channel both
+sides trust, its own signalling, so it swaps them there (Beam's backlog C5, beam-view's P12):
+`POST /api/beam/pairing` takes `clientCert` (the guest's certificate, PEM) instead of `pin`, and
+the certificate goes into the HTTPS server's trusted chain and the device list -- what a completed
+pairing leaves behind. It opens the session (S7) and sets its ports (S2) as a PIN approval does,
+and `/api/beam/pairing/cancel` removes the device again. Either way the response now carries
+`serverCert`, this Sunshine's own certificate, for the guest to pin instead of learning it by
+pairing.
+
+Nothing secret crosses: both certificates are public, and each side still proves on every TLS
+connection that it holds the matching private key. Checked live: the guest streams to a first frame
+with no pairing; a guest pinning the wrong certificate is refused; after cancel it is refused and
+no device is left.
+
 ## S7 — Nothing streams outside a Beam session, and nothing is announced, 2026-10-06
 
 `refuse_outside_beam_session` in `src/nvhttp.cpp` (`launch`, `resume`), and the mDNS start in
