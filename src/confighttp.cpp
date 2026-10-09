@@ -37,6 +37,7 @@
 #include "file_handler.h"
 #include "globals.h"
 #include "httpcommon.h"
+#include "input.h"
 #include "logging.h"
 #include "network.h"
 #include "nvhttp.h"
@@ -1497,6 +1498,58 @@ namespace confighttp {
   }
 
   /**
+   * @brief Beam: allow or refuse the guest's input, now, for the session under way.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   * The body for the post request should be JSON serialized in the following format:
+   * @code{.json}
+   * {
+   *   "mouse": true,
+   *   "keyboard": false,
+   *   "controller": true
+   * }
+   * @endcode
+   * Changes the `mouse`, `keyboard` and `controller` settings in memory, not in the config file:
+   * Beam writes the file's values from its own settings, and sets them again here at the start and
+   * end of every session.
+   *
+   * @api_examples{/api/beam/input| POST| {"mouse":true,"keyboard":false,"controller":true}}
+   */
+  void beamSetInput(const resp_https_t &response, const req_https_t &request) {
+    if (!check_content_type(response, request, "application/json")) {
+      return;
+    }
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    std::string client_id = get_client_id(request);
+    if (!validate_csrf_token(response, request, client_id)) {
+      return;
+    }
+
+    print_req(request);
+
+    try {
+      std::stringstream ss;
+      ss << request->content.rdbuf();
+      const nlohmann::json body = nlohmann::json::parse(ss);
+      for (const auto *name : {"mouse", "keyboard", "controller"}) {
+        if (!body.contains(name) || !body[name].is_boolean()) {
+          throw std::invalid_argument(std::string(name) + " must be true or false");
+        }
+      }
+      input::beam_allow(body["mouse"], body["keyboard"], body["controller"]);
+      nlohmann::json output_tree;
+      output_tree["status"] = true;
+      send_response(response, output_tree);
+    } catch (std::exception &e) {
+      BOOST_LOG(warning) << "BeamSetInput: "sv << e.what();
+      bad_request(response, request, e.what());
+    }
+  }
+
+  /**
    * @brief Reset the display device persistence.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
@@ -1921,6 +1974,7 @@ namespace confighttp {
     server.resource["^/api/pin$"]["POST"] = savePin;
     server.resource["^/api/beam/pairing$"]["POST"] = beamArmPairing;
     server.resource["^/api/beam/pairing/cancel$"]["POST"] = beamCancelPairing;
+    server.resource["^/api/beam/input$"]["POST"] = beamSetInput;
     server.resource["^/api/logs$"]["GET"] = getLogs;
     server.resource["^/api/reset-display-device-persistence$"]["POST"] = resetDisplayDevicePersistence;
     server.resource["^/api/restart$"]["POST"] = restart;

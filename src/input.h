@@ -16,6 +16,12 @@ namespace input {
 
   void print(void *input);
   void reset(std::shared_ptr<input_t> &input);
+
+  /**
+   * @brief Beam: allow or refuse the guest's mouse (with touch and pen), keyboard and controllers,
+   * now, without restarting. Releases anything the guest holds in a category turned off.
+   */
+  void beam_allow(bool mouse, bool keyboard, bool controller);
   void passthrough(std::shared_ptr<input_t> &input, std::vector<std::uint8_t> &&input_data);
 
   [[nodiscard]] std::unique_ptr<platf::deinit_t> init();

@@ -129,6 +129,21 @@ device still paired after its session was cancelled: refused.
 And a Sunshine bound to loopback no longer announces itself over mDNS: nothing on the network could
 connect to it, so announcing would only advertise the PC.
 
+## S8 — The host switches the guest's input during a session, 2026-10-09
+
+`beam_allow` in `src/input.cpp`, and `POST /api/beam/input` in `src/confighttp.cpp`.
+
+Upstream's `mouse`, `keyboard` and `controller` settings already gate the guest's input on the
+host, after the control stream is decrypted -- so a modified client cannot get around them -- but
+they are read from the config file at start. Beam's host wants to hand over and take back control
+mid-session. The route sets the three in memory, on the task pool that handles every input packet,
+so a change lands between packets. A category turned off first releases whatever the guest holds
+in it: mouse buttons, keys (and any key repeat), and each controller is set back to rest. Logged as
+`Beam: guest input -- mouse on, keyboard off, controllers on`.
+
+The config file keeps Beam's settings; Beam sets the live values again at the start and end of
+every session, so a change never outlives the session it was made in.
+
 ## Test builds
 
 Each patch is tried as a pre-release tagged `beam-dev` -- replaced every time, with

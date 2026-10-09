@@ -1633,27 +1633,72 @@ namespace input {
     task_pool.push(passthrough_next_message, input);
   }
 
+  /**
+   * @brief Release every mouse button the client is holding. Runs on the task pool.
+   */
+  static void release_mouse_buttons() {
+    for (int x = 0; x < mouse_press.size(); ++x) {
+      if (mouse_press[x]) {
+        platf::button_mouse(platf_input, x, true);
+        mouse_press[x] = false;
+      }
+    }
+  }
+
+  /**
+   * @brief Release every key the client is holding. Runs on the task pool.
+   */
+  static void release_keys() {
+    for (auto &kp : key_press) {
+      if (!kp.second) {
+        // already released
+        continue;
+      }
+      platf::keyboard_update(platf_input, vk_from_kpid(kp.first) & 0x00FF, true, flags_from_kpid(kp.first));
+      key_press[kp.first] = false;
+    }
+  }
+
   void reset(std::shared_ptr<input_t> &input) {
     task_pool.cancel(key_press_repeat_id);
     task_pool.cancel(input->mouse_left_button_timeout);
 
     // Ensure input is synchronous, by using the task_pool
     task_pool.push([]() {
-      for (int x = 0; x < mouse_press.size(); ++x) {
-        if (mouse_press[x]) {
-          platf::button_mouse(platf_input, x, true);
-          mouse_press[x] = false;
+      release_mouse_buttons();
+      release_keys();
+    });
+  }
+
+  void beam_allow(bool mouse, bool keyboard, bool controller) {
+    if (!keyboard) {
+      task_pool.cancel(key_press_repeat_id);
+    }
+
+    // On the task pool, the one thread that handles input packets and reads these flags, so a change
+    // lands between two packets and never inside one. Whatever the guest is holding when its input
+    // is turned off is released first: a key left down would stay down on this PC.
+    task_pool.push([mouse, keyboard, controller]() {
+      if (config::input.mouse && !mouse) {
+        release_mouse_buttons();
+      }
+      if (config::input.keyboard && !keyboard) {
+        release_keys();
+      }
+      if (config::input.controller && !controller) {
+        for (std::size_t id = 0; id < gamepadMask.size(); ++id) {
+          if (gamepadMask[id]) {
+            platf::gamepad_update(platf_input, static_cast<int>(id), platf::gamepad_state_t {});
+          }
         }
       }
 
-      for (auto &kp : key_press) {
-        if (!kp.second) {
-          // already released
-          continue;
-        }
-        platf::keyboard_update(platf_input, vk_from_kpid(kp.first) & 0x00FF, true, flags_from_kpid(kp.first));
-        key_press[kp.first] = false;
-      }
+      config::input.mouse = mouse;
+      config::input.keyboard = keyboard;
+      config::input.controller = controller;
+      BOOST_LOG(info) << "Beam: guest input -- mouse "sv << (mouse ? "on"sv : "off"sv)
+                      << ", keyboard "sv << (keyboard ? "on"sv : "off"sv)
+                      << ", controllers "sv << (controller ? "on"sv : "off"sv);
     });
   }
 
