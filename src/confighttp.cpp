@@ -1550,6 +1550,62 @@ namespace confighttp {
   }
 
   /**
+   * @brief Beam (S11): the displays this PC has, as `output_name` names them.
+   * @param response The HTTP response object.
+   * @param request The HTTP request object.
+   *
+   * `output_name` takes a display's device ID -- a GUID the display library derives, which no
+   * Windows tool prints -- so Beam's display picker asks here, in the form the setting expects:
+   * @code{.json}
+   * {
+   *   "status": true,
+   *   "displays": [
+   *     {"id": "{64243705-...}", "name": "\\.\DISPLAY1", "friendly_name": "DELL U2720Q",
+   *      "active": true, "primary": true, "width": 3840, "height": 2160, "refresh_rate": 59.95}
+   *   ]
+   * }
+   * @endcode
+   * `width`, `height` and `refresh_rate` are present only for an active display.
+   *
+   * @api_examples{/api/beam/displays| GET| null}
+   */
+  void beamGetDisplays(const resp_https_t &response, const req_https_t &request) {
+    if (!authenticate(response, request)) {
+      return;
+    }
+
+    print_req(request);
+
+    const auto as_double = [](const display_device::FloatingPoint &value) {
+      if (const auto *rational = std::get_if<display_device::Rational>(&value)) {
+        return rational->m_denominator == 0 ? 0.0 : static_cast<double>(rational->m_numerator) / rational->m_denominator;
+      }
+      return std::get<double>(value);
+    };
+
+    nlohmann::json displays = nlohmann::json::array();
+    for (const auto &device : display_device::enumerate_devices()) {
+      nlohmann::json display;
+      display["id"] = device.m_device_id;
+      display["name"] = device.m_display_name;
+      display["friendly_name"] = device.m_friendly_name;
+      display["active"] = device.m_info.has_value();
+      display["primary"] = device.m_info && device.m_info->m_primary;
+      if (device.m_info) {
+        display["width"] = device.m_info->m_resolution.m_width;
+        display["height"] = device.m_info->m_resolution.m_height;
+        display["refresh_rate"] = as_double(device.m_info->m_refresh_rate);
+      }
+      displays.push_back(std::move(display));
+    }
+
+    nlohmann::json output_tree;
+    output_tree["status"] = true;
+    output_tree["displays"] = std::move(displays);
+    send_response(response, output_tree);
+  }
+
+  /**
    * @brief Reset the display device persistence.
    * @param response The HTTP response object.
    * @param request The HTTP request object.
@@ -1975,6 +2031,7 @@ namespace confighttp {
     server.resource["^/api/beam/pairing$"]["POST"] = beamArmPairing;
     server.resource["^/api/beam/pairing/cancel$"]["POST"] = beamCancelPairing;
     server.resource["^/api/beam/input$"]["POST"] = beamSetInput;
+    server.resource["^/api/beam/displays$"]["GET"] = beamGetDisplays;
     server.resource["^/api/logs$"]["GET"] = getLogs;
     server.resource["^/api/reset-display-device-persistence$"]["POST"] = resetDisplayDevicePersistence;
     server.resource["^/api/restart$"]["POST"] = restart;
@@ -1986,7 +2043,10 @@ namespace confighttp {
     server.resource["^/images/logo-sunshine-45.png$"]["GET"] = getSunshineLogoImage;
     server.resource["^/assets\\/.+$"]["GET"] = getAsset;
 
-    server.config.reuse_address = true;
+    // Beam (S9): never share a port. On Windows `SO_REUSEADDR` lets a second listener bind a port
+    // another one already holds, and connections then reach either; without it the bind fails and
+    // Sunshine stops, saying which port.
+    server.config.reuse_address = false;
     server.config.address = net::get_bind_address(address_family);
     server.config.port = port_https;
 

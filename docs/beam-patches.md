@@ -144,6 +144,41 @@ in it: mouse buttons, keys (and any key repeat), and each controller is set back
 The config file keeps Beam's settings; Beam sets the live values again at the start and end of
 every session, so a change never outlives the session it was made in.
 
+## S9 — Sunshine never shares a port, 2026-10-25
+
+`reuse_address = false` for the HTTPS, HTTP and web UI servers (`src/nvhttp.cpp`,
+`src/confighttp.cpp`) and the RTSP acceptor (`src/rtsp.cpp`).
+
+Upstream binds with `SO_REUSEADDR`, which on Windows lets a second listener bind a port another one
+already holds; connections then reach either. Beam found a PowerShell listener on 48989 that did not
+stop a session (Beam's backlog D6). Without it the bind fails and Sunshine stops with a fatal line
+naming the port. Checked live: with 39989 held, `Couldn't start http server ... Only one usage of
+each socket address`.
+
+`SO_EXCLUSIVEADDRUSE`, which Beam's agents use, would also stop a *later* listener taking the port
+over, but Windows then refuses to rebind a port that has connections in TIME_WAIT -- a restart of
+Sunshine right after a session could fail for minutes. Not taken.
+
+## S10 — The host decides whether it keeps its sound, 2026-10-25
+
+`beam_host_audio` in `src/config.cpp`, applied by `beam_host_audio` in `src/nvhttp.cpp`; test in
+`tests/unit/test_http_pairing.cpp`.
+
+Upstream lets the client decide, with `localAudioPlayMode` on `/launch`: 0 moves the host's sound to
+a virtual speaker so only the client hears it. Whether the host goes quiet is the host's choice, so
+`beam_host_audio = enabled` or `disabled` overrides whatever the client asks. Unset, the client
+decides, as upstream.
+
+## S11 — The displays, as `output_name` names them, 2026-10-25
+
+`GET /api/beam/displays` in `src/confighttp.cpp`.
+
+`output_name` takes a display's device ID, a GUID the display library derives that no Windows tool
+prints -- `dxgi-info` gives `\\.\DISPLAY1`, which is not it. The route lists every display with
+its ID, Windows name, friendly name, whether it is primary, and its mode when it is on, so Beam's
+display picker offers them in the form the key takes. Checked live:
+`{"id":"{4b140592-...}","name":"\\\\.\\DISPLAY1","primary":true,"width":1920,"height":1080,...}`.
+
 ## Test builds
 
 Each patch is tried as a pre-release tagged `beam-dev` -- replaced every time, with
