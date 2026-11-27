@@ -169,6 +169,16 @@ a virtual speaker so only the client hears it. Whether the host goes quiet is th
 `beam_host_audio = enabled` or `disabled` overrides whatever the client asks. Unset, the client
 decides, as upstream.
 
+## S11 — The displays, as `output_name` names them, 2026-10-25
+
+`GET /api/beam/displays` in `src/confighttp.cpp`.
+
+`output_name` takes a display's device ID, a GUID the display library derives that no Windows tool
+prints -- `dxgi-info` gives `\\.\DISPLAY1`, which is not it. The route lists every display with
+its ID, Windows name, friendly name, whether it is primary, and its mode when it is on, so Beam's
+display picker offers them in the form the key takes. Checked live:
+`{"id":"{4b140592-...}","name":"\\\\.\\DISPLAY1","primary":true,"width":1920,"height":1080,...}`.
+
 ## Test builds
 
 Each patch is tried as a pre-release tagged `beam-dev` -- replaced every time, with
