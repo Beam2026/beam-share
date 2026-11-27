@@ -161,6 +161,9 @@ namespace config {
     std::string virtual_sink;  ///< Virtual audio sink for audio routing
     bool stream;  ///< Enable audio streaming to clients
     bool install_steam_drivers;  ///< Install Steam audio drivers for enhanced compatibility
+    /// Beam (S10): whether the host keeps hearing its own sound during a session -- `enabled`,
+    /// `disabled`, or empty for whatever the client asks (`localAudioPlayMode`). The host decides.
+    std::string beam_host_audio;
   };
 
   constexpr int ENCRYPTION_MODE_NEVER = 0;  // Never use video encryption, even if the client supports it

@@ -410,7 +410,8 @@ namespace rtsp_stream {
         return -1;
       }
 
-      acceptor.set_option(boost::asio::socket_base::reuse_address {true});
+      // Beam (S9): never share the port -- see `confighttp::start`.
+      acceptor.set_option(boost::asio::socket_base::reuse_address {false});
 
       auto bind_addr_str = net::get_bind_address(af);
       const auto bind_addr = boost::asio::ip::make_address(bind_addr_str, ec);
