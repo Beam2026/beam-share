@@ -144,6 +144,21 @@ in it: mouse buttons, keys (and any key repeat), and each controller is set back
 The config file keeps Beam's settings; Beam sets the live values again at the start and end of
 every session, so a change never outlives the session it was made in.
 
+## S9 — Sunshine never shares a port, 2026-10-25
+
+`reuse_address = false` for the HTTPS, HTTP and web UI servers (`src/nvhttp.cpp`,
+`src/confighttp.cpp`) and the RTSP acceptor (`src/rtsp.cpp`).
+
+Upstream binds with `SO_REUSEADDR`, which on Windows lets a second listener bind a port another one
+already holds; connections then reach either. Beam found a PowerShell listener on 48989 that did not
+stop a session (Beam's backlog D6). Without it the bind fails and Sunshine stops with a fatal line
+naming the port. Checked live: with 39989 held, `Couldn't start http server ... Only one usage of
+each socket address`.
+
+`SO_EXCLUSIVEADDRUSE`, which Beam's agents use, would also stop a *later* listener taking the port
+over, but Windows then refuses to rebind a port that has connections in TIME_WAIT -- a restart of
+Sunshine right after a session could fail for minutes. Not taken.
+
 ## Test builds
 
 Each patch is tried as a pre-release tagged `beam-dev` -- replaced every time, with

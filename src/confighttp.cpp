@@ -1986,7 +1986,10 @@ namespace confighttp {
     server.resource["^/images/logo-sunshine-45.png$"]["GET"] = getSunshineLogoImage;
     server.resource["^/assets\\/.+$"]["GET"] = getAsset;
 
-    server.config.reuse_address = true;
+    // Beam (S9): never share a port. On Windows `SO_REUSEADDR` lets a second listener bind a port
+    // another one already holds, and connections then reach either; without it the bind fails and
+    // Sunshine stops, saying which port.
+    server.config.reuse_address = false;
     server.config.address = net::get_bind_address(address_family);
     server.config.port = port_https;
 

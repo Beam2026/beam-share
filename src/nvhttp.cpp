@@ -1401,7 +1401,8 @@ namespace nvhttp {
     };
     https_server.resource["^/cancel$"]["GET"] = cancel;
 
-    https_server.config.reuse_address = true;
+    // Beam (S9): never share a port -- see `confighttp::start`.
+    https_server.config.reuse_address = false;
     https_server.config.address = net::get_bind_address(address_family);
     https_server.config.port = port_https;
 
@@ -1411,7 +1412,7 @@ namespace nvhttp {
       pair<SimpleWeb::HTTP>(add_cert, resp, req);
     };
 
-    http_server.config.reuse_address = true;
+    http_server.config.reuse_address = false;
     http_server.config.address = net::get_bind_address(address_family);
     http_server.config.port = port_http;
 
