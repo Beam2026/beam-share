@@ -187,8 +187,8 @@ release. Beam fetches one with `node scripts/fetch-engines.mjs --dev sunshine`.
 
 ## Building on Windows
 
-Upstream's `docs/building.md` applies, with MSYS2 UCRT64. Three things it leaves out, each of which
-fails the configure step:
+Upstream's `docs/building.md` applies, with MSYS2 UCRT64. What it leaves out, each of which fails
+the build:
 
 - **Run `pacman -Syu` first, really.** The prebuilt FFmpeg from `build-deps` links x264/x265 built
   against a newer MinGW runtime; on an older one the final link fails with `undefined reference to
@@ -198,7 +198,18 @@ fails the configure step:
   Export `PROCESSOR_ARCHITECTURE=AMD64` and delete `build/` after a failed download.
 - **Native Node.js must be on `PATH`** inside the MSYS2 shell, and **WiX needs a .NET SDK.** Beam
   ships the portable zip, not the MSI, so `-DCMAKE_IGNORE_PATH="C:/Program Files/dotnet"` lets WiX
-  skip itself.
+  skip itself. If CMake finds MSYS2's own `npm` first, the web UI step dies with exit code
+  `3221225781` (a DLL not found, as `cmd.exe` runs it): pass `-DNPM="C:/Program Files/nodejs/npm.cmd"`.
+- **OpenSSL 3, not 4.** MSYS2 moved to OpenSSL 4.1 in November 2026, which makes `ASN1_BIT_STRING`
+  opaque, and upstream's `src/crypto.cpp` at this base no longer compiles. Releases are built against
+  3.x: `pacman -U https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-openssl-3.6.5-1-any.pkg.tar.zst`,
+  then `IgnorePkg = mingw-w64-ucrt-x86_64-openssl` in `/etc/pacman.conf` so `pacman -Syu` keeps it.
+  Rebasing onto an upstream that builds with OpenSSL 4 removes this step.
+- **`-DBUILD_DOCS=OFF`**, unless Doxygen and Graphviz are installed: the docs are on by default and
+  configure stops without them. The portable zip does not carry them.
+- **Stamp the version with Windows' git**: `-DGIT_EXECUTABLE="C:/Program Files/Git/cmd/git.exe"`.
+  MSYS2's git does not read Windows git's `core.autocrlf`, sees every CRLF file as modified, and the
+  build calls itself `-dirty` on a clean tree.
 
 A release build matches upstream's CI (`ci-windows.yml`): `-DSUNSHINE_ASSETS_DIR=assets`, then
 `cpack -G ZIP` in `build/`.
