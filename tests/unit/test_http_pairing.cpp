@@ -5,6 +5,7 @@
 
 #include "../tests_common.h"
 
+#include <src/config.h>
 #include <src/nvhttp.h>
 
 using namespace nvhttp;
@@ -298,4 +299,21 @@ TEST(BeamPairingTest, ASessionIsOpenFromApprovalUntilCancel) {
   ASSERT_TRUE(beam_session_open());
   beam_cancel_pairing("session-g");
   ASSERT_FALSE(beam_session_open());
+}
+
+// Beam (S10): the host's sound setting wins over what the client asks for; unset, the client decides.
+TEST(BeamHostAudioTest, TheHostsSettingWinsOverTheClients) {
+  const auto saved = config::audio.beam_host_audio;
+
+  config::audio.beam_host_audio = "";
+  ASSERT_TRUE(beam_host_audio(true));
+  ASSERT_FALSE(beam_host_audio(false));
+
+  config::audio.beam_host_audio = "enabled";
+  ASSERT_TRUE(beam_host_audio(false));
+
+  config::audio.beam_host_audio = "disabled";
+  ASSERT_FALSE(beam_host_audio(true));
+
+  config::audio.beam_host_audio = saved;
 }

@@ -159,6 +159,16 @@ each socket address`.
 over, but Windows then refuses to rebind a port that has connections in TIME_WAIT -- a restart of
 Sunshine right after a session could fail for minutes. Not taken.
 
+## S10 — The host decides whether it keeps its sound, 2026-10-25
+
+`beam_host_audio` in `src/config.cpp`, applied by `beam_host_audio` in `src/nvhttp.cpp`; test in
+`tests/unit/test_http_pairing.cpp`.
+
+Upstream lets the client decide, with `localAudioPlayMode` on `/launch`: 0 moves the host's sound to
+a virtual speaker so only the client hears it. Whether the host goes quiet is the host's choice, so
+`beam_host_audio = enabled` or `disabled` overrides whatever the client asks. Unset, the client
+decides, as upstream.
+
 ## Test builds
 
 Each patch is tried as a pre-release tagged `beam-dev` -- replaced every time, with

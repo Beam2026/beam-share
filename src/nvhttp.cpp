@@ -318,6 +318,14 @@ namespace nvhttp {
     }
   }
 
+  bool beam_host_audio(bool requested) {
+    // The client asks, but whether the host goes silent for the session is the host's choice.
+    if (config::audio.beam_host_audio.empty()) {
+      return requested;
+    }
+    return config::audio.beam_host_audio == "enabled";
+  }
+
   std::shared_ptr<rtsp_stream::launch_session_t> make_launch_session(bool host_audio, const args_t &args) {
     auto launch_session = std::make_shared<rtsp_stream::launch_session_t>();
 
@@ -326,7 +334,7 @@ namespace nvhttp {
     auto rikey = util::from_hex_vec(get_arg(args, "rikey"), true);
     std::copy(rikey.cbegin(), rikey.cend(), std::back_inserter(launch_session->gcm_key));
 
-    launch_session->host_audio = host_audio;
+    launch_session->host_audio = beam_host_audio(host_audio);
     std::stringstream mode = std::stringstream(get_arg(args, "mode", "0x0x0"));
     // Split mode by the char "x", to populate width/height/fps
     int x = 0;

@@ -234,6 +234,13 @@ namespace nvhttp {
   std::string beam_server_cert();
 
   /**
+   * @brief Beam (S10): whether the host keeps playing its own sound for a session -- the host's
+   * `beam_host_audio` when it is set, else what the client asked for with `localAudioPlayMode`.
+   * @param requested What the client asked for.
+   */
+  bool beam_host_audio(bool requested);
+
+  /**
    * @brief Remove single client.
    * @param uuid The UUID of the client to remove.
    * @examples
